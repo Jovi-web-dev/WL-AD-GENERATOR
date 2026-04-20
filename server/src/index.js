@@ -16,7 +16,7 @@ app.use(express.json({ limit: "8mb" }));
 app.use("/uploads", express.static(path.resolve("server/uploads")));
 
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true, service: "wl-importados-platform" });
+  res.json({ ok: true, service: "ad-generator" });
 });
 
 app.use("/api/auth", authRoutes);
@@ -58,7 +58,7 @@ initDb()
   .then(attachFrontend)
   .then(() => {
     app.listen(port, "0.0.0.0", () => {
-      console.log(`WL Importados full-stack app running on port ${port}`);
+      console.log(`Ad Generator server running on port ${port}`);
     });
   })
   .catch(err => {

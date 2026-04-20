@@ -1,7 +1,7 @@
 export const THEMES = {
   wl: {
     id: "wl",
-    label: "Padrão WL",
+    label: "Premium Dourado",
     icon: "✦",
 
     bg: "#0C0B09",

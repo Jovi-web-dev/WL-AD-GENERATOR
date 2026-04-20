@@ -13,7 +13,7 @@ import { AdminPage } from "./pages/AdminPage";
 import { LoginPage } from "./pages/LoginPage";
 import { apiMe, clearAuth, readCachedUser } from "./lib/api";
 
-export default function WLPlatform() {
+export default function AdGeneratorApp() {
   const [theme, setTheme] = useState("wl");
   const [page, setPage] = useState("dashboard");
   const [collapsed, setCollapsed] = useState(false);

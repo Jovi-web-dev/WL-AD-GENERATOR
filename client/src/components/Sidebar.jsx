@@ -1,4 +1,4 @@
-import { NAV } from "../config/app";
+import { NAV, BRAND } from "../config/app";
 
 export function Sidebar({ active, onNav, collapsed, onToggle, t }) {
   return (
@@ -27,11 +27,11 @@ export function Sidebar({ active, onNav, collapsed, onToggle, t }) {
           fontWeight: 900, fontSize: 16, color: t.id === "black" ? "#000" : "#fff",
           flexShrink: 0, letterSpacing: -0.5,
           boxShadow: t.shadowAccent,
-        }}>WL</div>
+        }}>{BRAND.mark}</div>
         {!collapsed && (
           <div style={{ overflow: "hidden", whiteSpace: "nowrap" }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: t.text, letterSpacing: 0.3 }}>WL Importados</div>
-            <div style={{ fontSize: 10, color: t.textTertiary, letterSpacing: 2, fontWeight: 600 }}>CENTER</div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: t.text, letterSpacing: 0.3 }}>{BRAND.shortName}</div>
+            <div style={{ fontSize: 10, color: t.textTertiary, letterSpacing: 2, fontWeight: 600 }}>PLATFORM</div>
           </div>
         )}
       </div>

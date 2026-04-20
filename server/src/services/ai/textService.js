@@ -1,26 +1,25 @@
 function fallbackContent(input) {
   const productName = input.productName;
   const marketplaces = Array.isArray(input.marketplaces) && input.marketplaces.length ? input.marketplaces.join(", ") : "Mercado Livre";
-  const titleBase = `${productName} Premium | WL Importados`;
+  const titleBase = `${productName} - Qualidade Premium`;
   const titulo = titleBase.length > 60 ? titleBase.slice(0, 57) + "..." : titleBase;
 
   return {
     titulo,
     keywords: [
       productName,
-      "importados",
       "produto premium",
       "mercado livre",
-      "shopee",
       "oferta",
       "garantia",
       "qualidade",
       "envio rapido",
-      "wl importados",
+      "melhor preco",
+      "pronta entrega",
       input.category || "ecommerce",
       input.tone || "profissional"
     ].filter(Boolean).slice(0, 12),
-    descricao: `✨ ${productName}\n\nProduto selecionado pela WL Importados Center para venda em ${marketplaces}.\n\n→ Destaques principais:\n• Qualidade premium\n• Excelente custo-benefício\n• Ideal para quem busca praticidade e confiança\n\nGarantia WL Importados Center e suporte no pós-venda.`,
+    descricao: `${productName}\n\nDisponivel para venda em ${marketplaces}.\n\nDestaques principais:\n- Qualidade premium\n- Excelente custo-beneficio\n- Ideal para quem busca praticidade e confianca\n\nSuporte e atendimento pos-venda.`,
     promptFoto1: `Professional studio product photography: ${productName} centered on pure white background, 3-point studio lighting, 3/4 angle view, soft shadows, sharp focus, commercial e-commerce quality, 1024x1024px`,
     promptFoto2: `High-conversion product shot: ${productName} hero angle, dramatic lighting, rule of thirds composition, warm color grading, professional retouching, 1024x1024px`,
     promptFoto3: `Product infographic: ${productName} with text overlay showing specs, modern typography, color-coded callouts, clean data visualization, 1024x1024px`,

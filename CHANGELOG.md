@@ -1,106 +1,50 @@
 # Changelog
 
-Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
+Registra mudanças relevantes no projeto. Segue [Keep a Changelog](https://keepachangelog.com/).
+
+Datas no formato `YYYY-MM-DD`.
 
 ---
 
-## [1.0.0] - 2026-04-17
+## [Não lançado]
 
-### ✨ Adicionado
+### Etapa 0 — Higiene (2026-04-20)
 
-#### Sistema Modular de Geração
-- Sistema funciona com qualquer combinação de APIs (Claude, Gemini, Veo3)
-- Fallback automático quando APIs não estão configuradas
-- Warnings contextuais mostrando o que não foi gerado
+Limpeza estrutural antes de iniciar a refatoração por etapas. Sem mudança funcional.
 
-#### Integração Claude (Anthropic)
-- Geração de títulos SEO otimizados (60 chars para ML)
-- 12 keywords relevantes por produto
-- Descrições formatadas com emojis e garantia WL
-- 5 prompts ultra-detalhados para imagens
-- 1 prompt cinematográfico para vídeo
+**Removido**
+- Pasta `src/` legada contendo monólito React de 2008 linhas (substituído por `client/src/` modular).
+- Pasta `public/` com `index.html` duplicado e órfão.
+- Arquivo `wl-importados-platform.zip` indevidamente commitado no repositório.
+- Documentos consolidados ou obsoletos: `INVENTARIO.md`, `INICIO-RAPIDO.md`,
+  `docs/RESUMO-IMPLEMENTACAO.md`, `docs/UI-DOCUMENTATION.md`.
+- Credenciais default pré-preenchidas no formulário de login (`LoginPage.jsx`) — era
+  vulnerabilidade de acesso.
+- Referências hardcoded à marca "WL Importados" em textos de UI, fallbacks de geração de texto
+  no servidor e logs.
 
-#### Integração Gemini Vision (Google)
-- Endpoint real implementado: `gemini-1.5-flash:generateContent`
-- Processamento paralelo de 5 prompts de imagem
-- Uso de imagem de referência do upload
-- Error handling individual por imagem
-- Prompts básicos automáticos quando Claude não configurado
+**Alterado**
+- `package.json`: nome do projeto passa de `wl-importados-platform` para `ad-generator`; descrição
+  neutralizada.
+- `client/src/config/app.js`: introduzido objeto `BRAND` como ponto único de configuração do nome
+  comercial da plataforma. Sidebar e LoginPage passam a consumir `BRAND`.
+- `client/src/App.jsx`: componente default renomeado de `WLPlatform` para `AdGeneratorApp`.
+- `client/src/theme/themes.js`: rótulo do tema principal alterado de "Padrão WL" para
+  "Premium Dourado". Paleta de cores preservada integralmente.
+- `README.md`: reescrito como fonte única de verdade documental, com roadmap de refatoração.
+- `replit.md`: reduzido a notas específicas do ambiente Replit, delegando visão geral ao README.
+- `server/src/services/ai/textService.js`: fallbacks de título, keywords e descrição agora
+  agnósticos de marca (não embutem mais "WL Importados" no conteúdo gerado para clientes).
+- `server/src/index.js`: log de startup sem referência à marca antiga.
+- `index.html`: título e metadados neutros.
 
-#### Integração Veo3 (Google)
-- Estrutura preparada para API quando lançar
-- Simulação de geração de vídeo (2s delay)
-- Duração adaptativa (15s ou 30s)
-- Placeholder para video URL
+### Conhecido (será tratado nas próximas etapas)
 
-#### Interface do Usuário
-- 4 temas completos (Padrão WL, Branco, Black, Acessível)
-- 9 tabs de navegação (Anúncio Completo + 8 seções individuais)
-- Upload de até 5 imagens (JPEG/PNG)
-- Preview de imagens com botão remover
-- Progress bar durante geração
-- Estados vazios para conteúdo não gerado
-
-#### Gerenciamento de API Keys
-- CRUD completo (Create, Read, Update, Delete)
-- Validação de formato de chaves
-- Status visual (● Conectado / ✕ Inválido / ◌ Não configurado)
-- Campos de senha com toggle show/hide (👁/🙈)
-- Links diretos para obter chaves de cada provedor
-- Persistência em localStorage
-
-#### Documentação
-- README.md completo com instruções
-- INICIO-RAPIDO.md para setup rápido
-- INTEGRACAO-GEMINI-VEO3.md com detalhes técnicos
-- RESUMO-IMPLEMENTACAO.md com guia executivo
-- CHANGELOG.md (este arquivo)
-
-### 🔧 Detalhes Técnicos
-
-- **Frontend:** React 18.2.0
-- **Styling:** CSS-in-JS (inline styles)
-- **State Management:** React Hooks (useState)
-- **Storage:** localStorage
-- **APIs:** Claude Sonnet 4, Gemini 1.5 Flash, Veo3 (simulado)
-
-### ⚠️ Limitações Conhecidas
-
-- Gemini 1.5 Flash analisa imagens mas não gera (precisa migrar para Imagen API)
-- Veo3 API ainda não pública (implementação simulada)
-- API keys em localStorage (produção: criptografar no Base44)
-- Sem persistência de anúncios gerados (precisa integrar Base44 Ad entity)
-
-### 📋 Próximos Passos
-
-#### Alta Prioridade
-- [ ] Migrar de Gemini Flash para Imagen API
-- [ ] Implementar Base44 storage para assets
-- [ ] Download em lote (ZIP com 5 imgs + vídeo)
-- [ ] Validação real de API keys ao salvar
-
-#### Média Prioridade
-- [ ] Retry logic com exponential backoff
-- [ ] Progress tracking por imagem (1/5, 2/5...)
-- [ ] Caching de prompts/imagens geradas
-- [ ] WebSocket para status de vídeo assíncrono
-
-#### Baixa Prioridade
-- [ ] Preview carousel de imagens geradas
-- [ ] Edição de prompts antes de gerar
-- [ ] Gerar variações (2-3 versões por tipo)
-- [ ] Seletor de qualidade (Standard/HD/4K)
-
----
-
-## Versionamento
-
-Este projeto segue [Semantic Versioning](https://semver.org/):
-- **MAJOR:** Mudanças incompatíveis na API
-- **MINOR:** Funcionalidades adicionadas de forma retrocompatível
-- **PATCH:** Correções de bugs retrocompatíveis
-
----
-
-**Mantido por:** WL Importados Center  
-**Última atualização:** 2026-04-17
+- Autenticação JWT em `localStorage` (vulnerável a XSS) — será migrada para cookies httpOnly
+  na Etapa 1.
+- Registro aberto sem invite code — Etapa 1.
+- Chaves de IA lidas de `process.env` em vez de por usuário (não é BYOK real) — Etapa 2.
+- Tiers Starter/Pro/Premium não existem no modelo de dados — Etapa 3.
+- Integração com Mercado Livre inexistente — Etapa 4.
+- Geração síncrona, sem fila — Etapa 5.
+- `mediaService.js` retorna apenas placeholders SVG, sem chamadas reais a Gemini/fal — Etapa 6.

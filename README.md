@@ -1,254 +1,147 @@
-# WL Importados Center - Plataforma SaaS de Geração de Anúncios com IA
+# Ad Generator
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![React](https://img.shields.io/badge/react-18.2.0-61dafb)
-![Status](https://img.shields.io/badge/status-prototype-orange)
+SaaS de geração de anúncios completos para marketplaces (foco inicial: Mercado Livre), com
+pipeline de IA para gerar títulos, descrições, palavras-chave, imagens e clipes curtos a partir
+das informações do produto.
 
-**Plataforma completa para gerar anúncios de e-commerce usando IA generativa.**
-
----
-
-## 🎯 Visão Geral
-
-Sistema modular que integra Claude (Anthropic), Gemini Vision (Google) e Veo3 (Google) para criar automaticamente:
-
-- ✅ **Títulos SEO otimizados** (60 caracteres para Mercado Livre)
-- ✅ **12 keywords** relevantes para busca
-- ✅ **Descrições formatadas** com emojis e garantia
-- ✅ **5 prompts de imagens** (profissional, conversão, infográfico, detalhes, contexto)
-- ✅ **1 prompt de vídeo cinematográfico** (15-30s)
-- ✅ **Geração automática de assets visuais** (quando APIs configuradas)
+> **Estado atual:** pré-MVP. Código em refatoração estruturada. Não usar em produção.
 
 ---
 
-## 🚀 Instalação Rápida
+## Visão geral
+
+Cliente preenche dados de um produto → plataforma consulta dados públicos do Mercado Livre para
+benchmark → Claude gera textos otimizados e prompts de imagem/vídeo → Gemini (Nano Banana) gera as
+imagens → fal.ai (Hailuo / Seedance / Veo) gera o clipe → cliente copia o anúncio pronto para o
+Mercado Livre.
+
+Modelo de negócio: **BYOK** (*Bring Your Own Key*). O cliente cadastra as chaves de API dele
+(Anthropic, Google, fal.ai) na plataforma. A assinatura mensal dá acesso à ferramenta; o custo de
+inferência corre pela conta do próprio cliente.
+
+Três tiers de assinatura:
+
+- **Starter** — títulos (tradicional + long tail), palavras-chave, descrição.
+- **Pro** — Starter + título de catálogo + tags + 4 imagens.
+- **Premium** — Pro + 5ª imagem + 1 clipe (15–30s) + acesso a modelo de vídeo top-tier.
+
+---
+
+## Stack
+
+- **Frontend:** React 18 + Vite, CSS-in-JS via tokens de tema.
+- **Backend:** Express + Node 20, PostgreSQL (driver `pg`), JWT.
+- **Planejado (próximas etapas):** BullMQ + Redis (pipeline assíncrono), Cloudflare R2 (mídia),
+  integração real com Anthropic / Gemini / fal.ai / API pública do Mercado Livre.
+
+---
+
+## Estrutura do repositório
+
+```
+.
+├── client/                # Frontend React
+│   └── src/
+│       ├── components/    # UI compartilhada + Sidebar
+│       ├── config/        # app.js concentra BRAND, NAV, CATEGORIES, MARKETPLACES
+│       ├── lib/           # Cliente HTTP (api.js)
+│       ├── pages/         # Uma página por rota lógica
+│       └── theme/         # Tokens dos temas
+│
+├── server/                # Backend Express
+│   └── src/
+│       ├── db/            # Pool pg + bootstrap de tabelas
+│       ├── middleware/    # auth, errorHandler
+│       ├── routes/        # Handlers HTTP finos
+│       └── services/      # Regras de negócio + wrappers de IA
+│
+├── shared/                # Schemas e tipos compartilhados
+├── docs/                  # Documentação técnica pontual (deploy, providers)
+├── index.html             # Entry do Vite
+├── vite.config.mjs
+└── package.json
+```
+
+---
+
+## Variáveis de ambiente
+
+Copie `.env.example` para `.env` e preencha.
+
+| Variável | Obrigatória | Uso |
+|---|---|---|
+| `DATABASE_URL` | sim | String de conexão PostgreSQL. |
+| `JWT_SECRET` | sim em produção | Chave de assinatura dos tokens de sessão. |
+| `PORT` | não | Default `5000`. |
+| `NODE_ENV` | não | `development` ou `production`. |
+
+> **Importante:** a partir da Etapa 2 da refatoração, chaves de IA dos clientes serão
+> armazenadas criptografadas no banco (não em variáveis de ambiente). Os campos
+> `ANTHROPIC_API_KEY` e similares atualmente lidos em `process.env` são temporários.
+
+---
+
+## Executando localmente
+
+Requisitos: Node 20, PostgreSQL acessível via `DATABASE_URL`.
 
 ```bash
-# 1. Extrair o ZIP
-unzip wl-importados-platform.zip
-cd wl-importados-platform
-
-# 2. Instalar dependências
 npm install
-
-# 3. Iniciar servidor de desenvolvimento
 npm start
 ```
 
-O navegador abrirá automaticamente em `http://localhost:3000`
+O servidor sobe em `http://localhost:5000`. No modo `development`, o próprio Express embute o Vite
+via middleware — ou seja, uma única URL serve frontend e API.
 
----
+Em produção:
 
-## 🔑 Configuração de API Keys
-
-### Obter Chaves:
-
-1. **Claude (Anthropic):** https://console.anthropic.com/
-   - Crie uma conta → API Keys → Create Key
-   - Formato: `sk-ant-api03-...`
-
-2. **Gemini (Google):** https://aistudio.google.com/app/apikey
-   - Google Account → Get API Key
-   - Formato: qualquer chave com 20+ caracteres
-
-3. **Veo3 (Google):** Solicitar acesso ao preview
-   - Status: API ainda não pública
-   - Alternativa: Runway Gen-2
-
-### Configurar no App:
-
-1. Abra a plataforma
-2. Vá em **"API Keys"** (navegação superior)
-3. Cole suas chaves
-4. Clique **"Salvar Chaves"**
-5. Veja status: ● Conectado / ✕ Chave inválida
-
----
-
-## 📖 Como Usar
-
-### Gerar Anúncio Completo:
-
-```
-1. Navegação → "Anúncio Completo"
-2. Preencha:
-   - Nome do produto: "Smartwatch Fitness Tracker"
-   - Detalhes (opcional): "À prova d'água, monitor cardíaco, 7 dias bateria"
-   - Categoria: Eletrônicos
-   - Marketplace: Mercado Livre, Shopee
-   - Tom: Profissional
-3. Upload de imagens (opcional, até 5 fotos)
-4. Clique "Gerar Anúncio Completo com IA"
-5. Aguarde geração (texto + prompts)
-6. Clique "✦ Gerar Agora" para criar imagens/vídeo
-```
-
-### Navegação:
-
-- **Anúncio Completo:** Gera tudo de uma vez
-- **Título:** Apenas título SEO
-- **Keywords:** Apenas palavras-chave
-- **Descrição:** Apenas texto descritivo
-- **Fotos 1-5:** Prompts individuais de imagens
-- **Vídeo:** Prompt cinematográfico
-- **API Keys:** Gerenciar credenciais
-- **Temas:** 4 opções de aparência
-
----
-
-## 🎨 Temas Disponíveis
-
-1. **Padrão WL** - Azul/roxo, design moderno
-2. **Branco** - Minimalista, foco no conteúdo
-3. **Black** - Escuro, contraste alto
-4. **Acessível** - Alto contraste, fonte maior (WCAG AAA)
-
----
-
-## 🧩 Sistema Modular
-
-O sistema funciona com **qualquer combinação de APIs**:
-
-| APIs Configuradas | O Que é Gerado |
-|-------------------|----------------|
-| Só Claude | Texto + Prompts (sem assets visuais) |
-| Só Gemini | 5 imagens (sem texto) |
-| Só Veo3 | 1 vídeo (sem texto) |
-| Claude + Gemini | Texto + 5 imagens |
-| Claude + Veo3 | Texto + 1 vídeo |
-| Gemini + Veo3 | 5 imagens + 1 vídeo (sem texto) |
-| **Todas** | **Experiência completa** |
-
-### Warnings Automáticos:
-
-Quando algo não é gerado, o sistema mostra:
-
-```
-⚠ Geração Parcial
-• Texto não gerado: API Claude não configurada
-• Configure as APIs ausentes em "API Keys"
+```bash
+npm run build      # gera dist/
+npm run start:prod # serve dist/ estático + API
 ```
 
 ---
 
-## 📁 Estrutura do Projeto
+## Executando no Replit
 
-```
-wl-importados-platform/
-├── package.json          # Dependências e scripts
-├── README.md             # Este arquivo
-├── .gitignore            # Arquivos ignorados pelo Git
-│
-├── public/
-│   └── index.html        # HTML base
-│
-├── src/
-│   ├── index.js          # Entry point React
-│   ├── App.jsx           # Componente principal (2,009 linhas)
-│   └── assets/
-│       └── logo.svg      # Logo WL Importados
-│
-└── docs/
-    ├── INTEGRACAO-GEMINI-VEO3.md     # Documentação técnica de APIs
-    ├── RESUMO-IMPLEMENTACAO.md       # Resumo executivo
-    └── WL-Visao-Computacional-Spec.md # Especificação pipeline CV
-```
+O projeto já traz `.replit` e `replit.nix` configurados para Node 20. Basta clonar, definir
+`DATABASE_URL` (o Replit oferece PostgreSQL nativo) e `JWT_SECRET` nos *Secrets* do projeto e
+apertar **Run**.
 
 ---
 
-## 🔧 Tecnologias
+## Roadmap da refatoração
 
-- **Frontend:** React 18.2.0
-- **Styling:** CSS-in-JS (inline styles)
-- **State:** React Hooks (useState)
-- **Storage:** localStorage (API keys)
-- **APIs Integradas:**
-  - Claude Sonnet 4 (Anthropic)
-  - Gemini 1.5 Flash (Google)
-  - Veo3 (Google - preview)
+O projeto está sendo refatorado em etapas incrementais. Cada etapa é isolada e testável.
 
----
-
-## 💰 Modelo de Custo (BYOK)
-
-**Bring Your Own Key:** Seller usa próprias API keys = zero custo para WL Importados.
-
-| Componente | API | Custo/Unidade |
-|-----------|-----|---------------|
-| Texto + Prompts | Claude Sonnet 4 | $0.003 |
-| 5 Imagens (1024x1024) | Imagen API* | $0.01 |
-| Vídeo 15-30s | Veo3* | ~$0.15 |
-| **TOTAL** | | **$0.163/anúncio** |
-
-*Implementação em produção requer migração para Imagen API (Gemini Flash só analisa imagens) e aguardar lançamento do Veo3.
+- [x] **Etapa 0 — Higiene.** Remoção de código legado, consolidação de docs, neutralização da
+      marca no código (plataforma passa a usar `BRAND` centralizado em `client/src/config/app.js`).
+- [ ] **Etapa 1 — Segurança da base.** Invite codes, JWT em cookie httpOnly com refresh rotation,
+      validação Zod nas rotas, rate limit.
+- [ ] **Etapa 2 — BYOK Vault.** Tabela de credenciais criptografadas (AES-256-GCM), UI de cadastro
+      e validação de chaves por provider.
+- [ ] **Etapa 3 — Tiers e cotas.** Enum de tier, assinaturas com cota por ciclo, middleware de
+      gating.
+- [ ] **Etapa 4 — Benchmark Mercado Livre.** App registrada no ML, cache de benchmark, prompts
+      enriquecidos com top keywords/títulos reais.
+- [ ] **Etapa 5 — Pipeline assíncrono.** BullMQ + Redis + workers, fluxo DAG, polling de status.
+- [ ] **Etapa 6 — Integrações reais.** Gemini/Nano Banana, fal.ai (Hailuo/Seedance/Veo), upload
+      para R2, concatenação de clipes via FFmpeg.
+- [ ] **Etapa 7 — TypeScript gradual.** A partir dos adapters de providers.
 
 ---
 
-## ⚠️ Limitações Atuais
+## Branding
 
-### Gemini 1.5 Flash
+O nome comercial da plataforma é **placeholder** neste momento (`AdGen` em
+`client/src/config/app.js` → `BRAND`). Quando o nome definitivo for escolhido, basta alterar o
+objeto `BRAND` — nada mais precisa mudar na UI.
 
-O endpoint atual (`gemini-1.5-flash:generateContent`) **analisa imagens**, mas **NÃO gera imagens**.
-
-**Solução:** Migrar para **Imagen API** (Google Cloud Vertex AI)
-
-### Veo3
-
-API ainda não é pública. Alternativas:
-- Aguardar lançamento oficial
-- Usar Runway Gen-2 ($0.75 por 15s)
+Conteúdo gerado para o cliente (títulos, descrições) é **agnóstico de marca**: nenhuma assinatura
+da plataforma é embutida no texto que vai para o anúncio do cliente.
 
 ---
 
-## 🚧 Roadmap de Produção
+## Licença
 
-### Alta Prioridade
-- [ ] Migrar para Imagen API
-- [ ] Implementar Base44 storage para assets
-- [ ] Download em lote (ZIP com 5 imgs + vídeo)
-- [ ] Validação real de API keys
-
-### Média Prioridade
-- [ ] Retry logic com exponential backoff
-- [ ] Progress tracking por imagem (1/5, 2/5...)
-- [ ] Caching de prompts/imagens
-- [ ] WebSocket para status de vídeo
-
-### Baixa Prioridade
-- [ ] Preview carousel de imagens
-- [ ] Edição de prompts antes de gerar
-- [ ] Gerar variações (2-3 versões por tipo)
-- [ ] Seletor de qualidade (Standard/HD/4K)
-
----
-
-## 📚 Documentação Completa
-
-Veja a pasta `/docs` para:
-
-- **INTEGRACAO-GEMINI-VEO3.md** - Endpoints reais, exemplos de código
-- **RESUMO-IMPLEMENTACAO.md** - Guia executivo, testes
-- **WL-Visao-Computacional-Spec.md** - Pipeline de computer vision
-
----
-
-## 🐛 Problemas Conhecidos
-
-1. **Gemini Flash não gera imagens** - precisa migrar para Imagen
-2. **Veo3 API não disponível** - implementação simulada
-3. **API keys em localStorage** - produção: criptografar no Base44
-4. **Sem persistência de anúncios** - precisa salvar na entidade Ad
-
----
-
-## 📞 Suporte
-
-**Desenvolvedor:** Engenheiro de Prompt Sênior  
-**Versão:** 1.0.0 (Prototype)  
-**Data:** 2026-04-17
-
----
-
-## 📝 Licença
-
-Uso privado - WL Importados Center. Todos os direitos reservados.
+Uso privado. Todos os direitos reservados.

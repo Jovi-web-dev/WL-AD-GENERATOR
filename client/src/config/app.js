@@ -1,3 +1,22 @@
+// ===============================================================
+// IDENTIDADE DA PLATAFORMA
+// ---------------------------------------------------------------
+// Ponto unico de configuracao do nome comercial.
+// Quando o nome definitivo for escolhido (ex.: "Anuncia", "AdForge"),
+// basta alterar abaixo. Nenhum texto de marca deve ser hardcoded
+// em paginas ou componentes.
+// ===============================================================
+export const BRAND = {
+  // Nome curto, usado em logo e header
+  shortName: "AdGen",
+  // Nome completo, usado em titulos e texto descritivo
+  fullName: "AdGen Platform",
+  // Sigla de 2 caracteres para o selo do logo (substituivel por <img> depois)
+  mark: "AG",
+  // Tagline opcional para tela de login / landing
+  tagline: "Geracao de anuncios completos para marketplaces"
+};
+
 export const NAV = [
   { id: "dashboard", icon: "◫", label: "Dashboard" },
   { id: "anuncio", icon: "✦", label: "Anúncio Completo", badge: "PRO" },

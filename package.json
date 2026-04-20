@@ -1,9 +1,8 @@
 {
-  "name": "wl-importados-platform",
-  "version": "1.0.0",
-  "description": "Plataforma SaaS de Geração de Anúncios com IA para E-commerce - WL Importados Center",
+  "name": "ad-generator",
+  "version": "0.1.0",
+  "description": "SaaS de geracao de anuncios completos para marketplaces com IA",
   "private": true,
-  "author": "WL Importados Center",
   "license": "UNLICENSED",
   "scripts": {
     "start": "NODE_ENV=development HOST=0.0.0.0 PORT=5000 node server/src/index.js",
@@ -23,14 +22,11 @@
   },
   "devDependencies": {},
   "keywords": [
-    "e-commerce",
-    "ai",
-    "gemini",
-    "claude",
-    "veo3",
-    "image-generation",
-    "video-generation",
+    "ecommerce",
     "saas",
-    "marketplace"
+    "marketplace",
+    "mercado-livre",
+    "ai",
+    "ad-generator"
   ]
 }
