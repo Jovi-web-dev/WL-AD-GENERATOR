@@ -1,0 +1,958 @@
+From 165bbf9caa429caed68c38d9e4d9b82112cc6409 Mon Sep 17 00:00:00 2001
+From: Ad Generator Refactor <refactor@local>
+Date: Thu, 23 Apr 2026 16:37:15 +0000
+Subject: [PATCH] feat: etapa 0.5 - tiers, cotas e limpeza de UI
+
+Novas capacidades:
+- Tiers Starter/Pro/Premium como fonte unica (client + server)
+- Cota diaria e mensal por tier, enforcement no backend (HTTP 429)
+- /api/auth/me expoe daily_used e monthly_used
+- Migracao idempotente: admin vira premium, outros viram starter
+- Default de novos usuarios agora e starter
+
+UI:
+- Dashboard: removido subtitulo e 3 metricas vazias
+- Anuncio Completo: marketplace exclusivo (ML ou Shopee, nao ambos)
+- Amazon e Magalu removidos dos marketplaces
+- Banner 'APIs seguras' removido
+- Cota dinamica: 'Plano X - N de M anuncios restantes hoje'
+- Upsell visual em imagens (Starter) e video (Starter/Pro)
+- Botao 'Gerar Anuncio Completo com IA' -> 'Gerar Anuncio'
+- Botao desabilita quando cota esgotada
+- Sidebar: card 'Plano Atual' dinamico, sem data fake
+- PlansPage: reescrita em cima de TIERS, sem precos fake
+
+Arquitetura:
+- Novo usageService isola queries de contagem
+- generationService normaliza erros 429 por tier
+- publicUser enriquecido com usage via publicUserWithUsage
+---
+ client/src/App.jsx                       |   4 +-
+ client/src/components/Sidebar.jsx        |  10 +-
+ client/src/config/app.js                 |   2 -
+ client/src/config/tiers.js               |  83 +++++++
+ client/src/pages/AdGeneratorPage.jsx     | 283 +++++++++++++++--------
+ client/src/pages/DashboardPage.jsx       |   4 -
+ client/src/pages/PlansPage.jsx           | 105 +++++++--
+ server/src/config/tiers.js               |  71 ++++++
+ server/src/db/init.js                    |  26 ++-
+ server/src/services/authService.js       |  30 ++-
+ server/src/services/generationService.js |  23 +-
+ server/src/services/usageService.js      |  20 ++
+ 12 files changed, 522 insertions(+), 139 deletions(-)
+ create mode 100644 client/src/config/tiers.js
+ create mode 100644 server/src/config/tiers.js
+ create mode 100644 server/src/services/usageService.js
+
+diff --git a/client/src/App.jsx b/client/src/App.jsx
+index c40c11d..755df47 100644
+--- a/client/src/App.jsx
++++ b/client/src/App.jsx
+@@ -42,7 +42,7 @@ export default function AdGeneratorApp() {
+   const renderPage = () => {
+     switch (page) {
+       case "dashboard": return <DashboardPage t={t} onNav={setPage} />;
+-      case "anuncio": return <AnuncioCompletoPage t={t} />;
++      case "anuncio": return <AnuncioCompletoPage t={t} user={user} />;
+       case "historico": return <HistoryPage t={t} />;
+       case "planos": return <PlansPage t={t} user={user} />;
+       case "admin": return <AdminPage t={t} />;
+@@ -84,7 +84,7 @@ export default function AdGeneratorApp() {
+         select option { background: ${t.bgCard}; color: ${t.text}; }
+       `}</style>
+ 
+-      <Sidebar active={page} onNav={setPage} collapsed={collapsed} onToggle={() => setCollapsed(p => !p)} t={t} />
++      <Sidebar active={page} onNav={setPage} collapsed={collapsed} onToggle={() => setCollapsed(p => !p)} t={t} user={user} />
+ 
+       <main style={{ flex: 1, display: "flex", flexDirection: "column", maxHeight: "100vh", overflow: "hidden" }}>
+         <header style={{
+diff --git a/client/src/components/Sidebar.jsx b/client/src/components/Sidebar.jsx
+index 0776e16..27c3efc 100644
+--- a/client/src/components/Sidebar.jsx
++++ b/client/src/components/Sidebar.jsx
+@@ -1,6 +1,8 @@
+ import { NAV, BRAND } from "../config/app";
++import { getTier } from "../config/tiers";
+ 
+-export function Sidebar({ active, onNav, collapsed, onToggle, t }) {
++export function Sidebar({ active, onNav, collapsed, onToggle, t, user }) {
++  const tier = getTier(user?.plan);
+   return (
+     <aside style={{
+       width: collapsed ? 68 : 256, minHeight: "100vh",
+@@ -44,8 +46,10 @@ export function Sidebar({ active, onNav, collapsed, onToggle, t }) {
+           border: `1px solid ${t.accentBorder}`,
+         }}>
+           <div style={{ fontSize: 10, color: t.textTertiary, letterSpacing: 1.5, fontWeight: 700 }}>PLANO ATUAL</div>
+-          <div style={{ fontSize: 15, fontWeight: 700, color: t.accent, marginTop: 3 }}>Premium Pro</div>
+-          <div style={{ fontSize: 11, color: t.textTertiary, marginTop: 2 }}>Válido até 12/07/2026</div>
++          <div style={{ fontSize: 15, fontWeight: 700, color: t.accent, marginTop: 3 }}>{tier.label}</div>
++          <div style={{ fontSize: 11, color: t.textTertiary, marginTop: 2 }}>
++            {tier.dailyQuota} {tier.dailyQuota === 1 ? "anuncio" : "anuncios"} por dia
++          </div>
+         </div>
+       )}
+ 
+diff --git a/client/src/config/app.js b/client/src/config/app.js
+index 9754e9c..9fb42d9 100644
+--- a/client/src/config/app.js
++++ b/client/src/config/app.js
+@@ -48,6 +48,4 @@ export const CATEGORIES = [
+ export const MARKETPLACES = [
+   { id: "ml", name: "Mercado Livre", symbol: "ML", hue: 50 },
+   { id: "shopee", name: "Shopee", symbol: "SP", hue: 15 },
+-  { id: "amazon", name: "Amazon", symbol: "AZ", hue: 30 },
+-  { id: "magalu", name: "Magalu", symbol: "MG", hue: 210 },
+ ];
+diff --git a/client/src/config/tiers.js b/client/src/config/tiers.js
+new file mode 100644
+index 0000000..9a752ff
+--- /dev/null
++++ b/client/src/config/tiers.js
+@@ -0,0 +1,83 @@
++// ===============================================================
++// CONFIGURACAO DE TIERS / PLANOS
++// ---------------------------------------------------------------
++// Fonte unica de verdade para os 3 planos do produto.
++// Usada tanto pela UI (exibicao de cota, upsell, gating visual)
++// quanto como referencia para o backend (ver server/src/config/tiers.js
++// quando este for criado na Etapa 3).
++//
++// Regras:
++// - Tier chaveia pelo id minusculo (coincide com users.plan no banco).
++// - dailyQuota e monthlyQuota sao aplicados em conjunto (AND):
++//   o que estourar primeiro bloqueia a geracao.
++// - features = quais blocos do anuncio completo sao entregues por
++//   uma chamada de "gerar anuncio completo" neste tier.
++// ===============================================================
++
++export const TIERS = {
++  starter: {
++    id: "starter",
++    label: "Starter",
++    dailyQuota: 1,
++    monthlyQuota: 30,
++    features: {
++      titleTraditional: true,
++      titleCatalog: false,
++      longTail: true,
++      keywords: true,
++      tags: false,
++      description: true,
++      images: 0,
++      video: false,
++    },
++    // Numero de imagens geradas quando features.images > 0
++    imageCount: 0,
++    // Curto upsell para mostrar em cards bloqueados
++    upsellTarget: "pro",
++  },
++  pro: {
++    id: "pro",
++    label: "Pro",
++    dailyQuota: 2,
++    monthlyQuota: 60,
++    features: {
++      titleTraditional: true,
++      titleCatalog: true,
++      longTail: true,
++      keywords: true,
++      tags: true,
++      description: true,
++      images: 4,
++      video: false,
++    },
++    imageCount: 4,
++    upsellTarget: "premium",
++  },
++  premium: {
++    id: "premium",
++    label: "Premium",
++    dailyQuota: 3,
++    monthlyQuota: 90,
++    features: {
++      titleTraditional: true,
++      titleCatalog: true,
++      longTail: true,
++      keywords: true,
++      tags: true,
++      description: true,
++      images: 5,
++      video: true,
++    },
++    imageCount: 5,
++    upsellTarget: null,
++  },
++};
++
++// Tier default quando users.plan nao bate com nenhum conhecido
++export const DEFAULT_TIER_ID = "starter";
++
++export function getTier(planId) {
++  if (!planId) return TIERS[DEFAULT_TIER_ID];
++  const key = String(planId).toLowerCase();
++  return TIERS[key] || TIERS[DEFAULT_TIER_ID];
++}
+diff --git a/client/src/pages/AdGeneratorPage.jsx b/client/src/pages/AdGeneratorPage.jsx
+index 16d3a2e..62bf8d5 100644
+--- a/client/src/pages/AdGeneratorPage.jsx
++++ b/client/src/pages/AdGeneratorPage.jsx
+@@ -1,14 +1,22 @@
+-import { useState } from "react";
++import { useState, useMemo } from "react";
+ import { Button, InputField, SelectField } from "../components/ui";
+ import { CATEGORIES, MARKETPLACES } from "../config/app";
++import { getTier, TIERS } from "../config/tiers";
+ import { apiGenerateAd, apiGenerateMedia } from "../lib/api";
+ 
+-export function AnuncioCompletoPage({ t }) {
++export function AnuncioCompletoPage({ t, user }) {
++  // Tier derivado do user. Se nao houver user (edge case), assume Starter.
++  const tier = useMemo(() => getTier(user?.plan), [user?.plan]);
++  const dailyUsed = user?.daily_used ?? 0;
++  const dailyRemaining = Math.max(0, tier.dailyQuota - dailyUsed);
++  const quotaExhausted = dailyRemaining <= 0;
++
+   const [productName, setProductName] = useState("");
+   const [productDetails, setProductDetails] = useState("");
+   const [category, setCategory] = useState("");
+   const [tone, setTone] = useState("profissional");
+-  const [selectedMPs, setSelectedMPs] = useState(["ml"]);
++  // Marketplace mutuamente exclusivo (1 por anuncio). Default: Mercado Livre.
++  const [selectedMP, setSelectedMP] = useState("ml");
+   const [uploadedImages, setUploadedImages] = useState([]);
+   const [generating, setGenerating] = useState(false);
+   const [generated, setGenerated] = useState(false);
+@@ -87,7 +95,7 @@ export function AnuncioCompletoPage({ t }) {
+         productDetails,
+         category,
+         tone,
+-        marketplaces: selectedMPs,
++        marketplaces: [selectedMP],
+         imageCount: uploadedImages.length
+       });
+ 
+@@ -147,16 +155,19 @@ export function AnuncioCompletoPage({ t }) {
+             ]} value={tone} onChange={e => setTone(e.target.value)} t={t} />
+           </div>
+ 
+-          {/* Marketplace selection */}
++          {/* Marketplace selection — exclusivo: 1 anuncio = 1 marketplace */}
+           <div style={{ marginBottom: 24 }}>
+-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 10 }}>
+-              <span style={{ color: t.accent }}>→</span> Marketplace(s) destino
++            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 6 }}>
++              <span style={{ color: t.accent }}>→</span> Marketplace de destino
+             </label>
++            <p style={{ fontSize: 12, color: t.textTertiary, margin: "0 0 10px", lineHeight: 1.5 }}>
++              Escolha um marketplace. Cada marketplace tem regras proprias de titulo, descricao e categoria — gerar um anuncio por vez garante a melhor otimizacao.
++            </p>
+             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+               {MARKETPLACES.map(mp => {
+-                const sel = selectedMPs.includes(mp.id);
++                const sel = selectedMP === mp.id;
+                 return (
+-                  <button key={mp.id} onClick={() => setSelectedMPs(p => sel ? p.filter(x => x !== mp.id) : [...p, mp.id])} style={{
++                  <button key={mp.id} onClick={() => setSelectedMP(mp.id)} style={{
+                     padding: "10px 18px", borderRadius: t.radius,
+                     border: `1.5px solid ${sel ? t.accent : t.border}`,
+                     background: sel ? t.accentMuted : "transparent",
+@@ -179,100 +190,134 @@ export function AnuncioCompletoPage({ t }) {
+             </div>
+           </div>
+ 
+-          {/* Image upload section */}
+-          <div style={{ marginBottom: 24 }}>
+-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 6 }}>
+-              <span style={{ color: t.accent }}>◲</span> Imagens de referência (opcional)
+-            </label>
+-            <p style={{ fontSize: 12, color: t.textTertiary, margin: "0 0 12px", lineHeight: 1.5 }}>
+-              Envie até 5 fotos do produto. A IA analisará e gerará 5 imagens profissionais otimizadas para conversão.
+-            </p>
+-            
+-            {uploadedImages.length < 5 && (
+-              <label style={{
+-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+-                padding: "16px", borderRadius: t.radius,
+-                border: `2px dashed ${t.border}`,
+-                background: t.bgInput, cursor: "pointer",
+-                transition: "all 0.2s",
+-                fontSize: 13, fontWeight: 500, color: t.textSecondary,
+-              }}
+-                onMouseEnter={e => e.currentTarget.style.borderColor = t.accent}
+-                onMouseLeave={e => e.currentTarget.style.borderColor = t.border}
+-              >
+-                <span style={{ fontSize: 18 }}>⬆</span>
+-                Selecionar imagens ({uploadedImages.length}/5)
+-                <input
+-                  type="file"
+-                  accept="image/jpeg,image/jpg,image/png"
+-                  multiple
+-                  onChange={handleImageUpload}
+-                  style={{ display: "none" }}
+-                />
++          {/* Image upload section — so aparece se o tier incluir imagens */}
++          {tier.features.images > 0 ? (
++            <div style={{ marginBottom: 24 }}>
++              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 6 }}>
++                <span style={{ color: t.accent }}>◲</span> Imagens de referência (opcional)
+               </label>
+-            )}
++              <p style={{ fontSize: 12, color: t.textTertiary, margin: "0 0 12px", lineHeight: 1.5 }}>
++                Envie até 5 fotos do produto. A IA gerará {tier.features.images} imagens profissionais otimizadas para conversão.
++              </p>
++              
++              {uploadedImages.length < 5 && (
++                <label style={{
++                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
++                  padding: "16px", borderRadius: t.radius,
++                  border: `2px dashed ${t.border}`,
++                  background: t.bgInput, cursor: "pointer",
++                  transition: "all 0.2s",
++                  fontSize: 13, fontWeight: 500, color: t.textSecondary,
++                }}
++                  onMouseEnter={e => e.currentTarget.style.borderColor = t.accent}
++                  onMouseLeave={e => e.currentTarget.style.borderColor = t.border}
++                >
++                  <span style={{ fontSize: 18 }}>⬆</span>
++                  Selecionar imagens ({uploadedImages.length}/5)
++                  <input
++                    type="file"
++                    accept="image/jpeg,image/jpg,image/png"
++                    multiple
++                    onChange={handleImageUpload}
++                    style={{ display: "none" }}
++                  />
++                </label>
++              )}
+ 
+-            {uploadedImages.length > 0 && (
+-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 10, marginTop: 12 }}>
+-                {uploadedImages.map((img, i) => (
+-                  <div key={i} style={{
+-                    position: "relative", borderRadius: t.radius, overflow: "hidden",
+-                    border: `1px solid ${t.border}`, background: t.bgCard,
+-                  }}>
+-                    <img src={img.preview} alt={img.name} style={{
+-                      width: "100%", height: 110, objectFit: "cover", display: "block",
+-                    }} />
+-                    <button onClick={() => removeImage(i)} style={{
+-                      position: "absolute", top: 4, right: 4,
+-                      width: 24, height: 24, borderRadius: "50%",
+-                      border: "none", background: "rgba(0,0,0,0.7)",
+-                      color: "#fff", fontSize: 14, fontWeight: 700,
+-                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+-                      transition: "background 0.2s",
+-                    }}
+-                      onMouseEnter={e => e.currentTarget.style.background = "rgba(200,0,0,0.9)"}
+-                      onMouseLeave={e => e.currentTarget.style.background = "rgba(0,0,0,0.7)"}
+-                    >×</button>
+-                    <div style={{
+-                      padding: "4px 6px", fontSize: 10, color: t.textTertiary,
+-                      background: t.bgPanel, borderTop: `1px solid ${t.border}`,
+-                      textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap",
+-                    }}>{img.name}</div>
+-                  </div>
+-                ))}
+-              </div>
+-            )}
++              {uploadedImages.length > 0 && (
++                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 10, marginTop: 12 }}>
++                  {uploadedImages.map((img, i) => (
++                    <div key={i} style={{
++                      position: "relative", borderRadius: t.radius, overflow: "hidden",
++                      border: `1px solid ${t.border}`, background: t.bgCard,
++                    }}>
++                      <img src={img.preview} alt={img.name} style={{
++                        width: "100%", height: 110, objectFit: "cover", display: "block",
++                      }} />
++                      <button onClick={() => removeImage(i)} style={{
++                        position: "absolute", top: 4, right: 4,
++                        width: 24, height: 24, borderRadius: "50%",
++                        border: "none", background: "rgba(0,0,0,0.7)",
++                        color: "#fff", fontSize: 14, fontWeight: 700,
++                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
++                        transition: "background 0.2s",
++                      }}
++                        onMouseEnter={e => e.currentTarget.style.background = "rgba(200,0,0,0.9)"}
++                        onMouseLeave={e => e.currentTarget.style.background = "rgba(0,0,0,0.7)"}
++                      >×</button>
++                      <div style={{
++                        padding: "4px 6px", fontSize: 10, color: t.textTertiary,
++                        background: t.bgPanel, borderTop: `1px solid ${t.border}`,
++                        textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap",
++                      }}>{img.name}</div>
++                    </div>
++                  ))}
++                </div>
++              )}
+ 
+-            {uploadedImages.length > 0 && (
+-              <div style={{
+-                marginTop: 12, padding: "10px 14px", borderRadius: t.radiusSm,
+-                background: t.bgInput, border: `1px solid ${t.accentBorder}`,
+-                fontSize: 11, color: t.textTertiary, lineHeight: 1.5,
+-              }}>
+-                <strong style={{ color: t.accent, fontWeight: 600 }}>Imagens que serão geradas:</strong><br/>
+-                ① Foto profissional de estúdio • ② Alta conversão • ③ Com descrição integrada • ④ Grande + detalhes • ⑤ Ambientada em contexto
+-              </div>
+-            )}
+-          </div>
++              {uploadedImages.length > 0 && (
++                <div style={{
++                  marginTop: 12, padding: "10px 14px", borderRadius: t.radiusSm,
++                  background: t.bgInput, border: `1px solid ${t.accentBorder}`,
++                  fontSize: 11, color: t.textTertiary, lineHeight: 1.5,
++                }}>
++                  <strong style={{ color: t.accent, fontWeight: 600 }}>
++                    {tier.features.images} {tier.features.images === 1 ? "imagem sera gerada" : "imagens serao geradas"}:
++                  </strong><br/>
++                  {tier.features.images >= 1 && "① Foto profissional de estúdio"}
++                  {tier.features.images >= 2 && " • ② Alta conversão"}
++                  {tier.features.images >= 3 && " • ③ Com descrição integrada"}
++                  {tier.features.images >= 4 && " • ④ Grande + detalhes"}
++                  {tier.features.images >= 5 && " • ⑤ Ambientada em contexto"}
++                </div>
++              )}
++            </div>
++          ) : (
++            <LockedFeatureCard
++              t={t}
++              icon="◲"
++              title="Geração de imagens com IA"
++              description={`Disponivel nos planos ${TIERS.pro.label} (${TIERS.pro.features.images} imagens) e ${TIERS.premium.label} (${TIERS.premium.features.images} imagens).`}
++              upsellTarget={tier.upsellTarget}
++            />
++          )}
+ 
+-          <div style={{
+-            padding: "10px 14px", borderRadius: t.radius,
+-            background: t.infoBg, border: `1px solid ${t.accentBorder}`,
+-            fontSize: 12, color: t.info, marginBottom: 20,
+-            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+-          }}>
+-            <span style={{ fontWeight: 600 }}>APIs seguras:</span>
+-            <span>As chamadas agora passam pelo back-end. Sem chaves expostas no navegador.</span>
+-          </div>
++          {/* Video section — upsell ate Premium */}
++          {tier.features.video ? (
++            <div style={{
++              marginBottom: 24, padding: "14px 16px", borderRadius: t.radius,
++              background: t.accentMuted, border: `1px solid ${t.accentBorder}`,
++              fontSize: 12, color: t.textSecondary, lineHeight: 1.5,
++            }}>
++              <strong style={{ color: t.accent, fontWeight: 600 }}>▶ Clipe de 15–30s incluso.</strong>{" "}
++              Sera gerado um clipe curto do produto a partir da melhor imagem produzida.
++            </div>
++          ) : (
++            <LockedFeatureCard
++              t={t}
++              icon="▶"
++              title="Clipe de 15–30s com IA"
++              description={`Disponivel no plano ${TIERS.premium.label}. Gera um clipe curto do produto ideal para Stories, Reels e video no anuncio.`}
++              upsellTarget={tier.upsellTarget === "premium" ? "premium" : "premium"}
++            />
++          )}
+ 
+-          {/* Usage indicator */}
++          {/* Usage indicator — cota diaria dinamica por tier */}
+           <div style={{
+             padding: "12px 16px", borderRadius: t.radius,
+-            background: t.successBg, border: `1px solid ${t.successBorder}`,
+-            fontSize: 13, color: t.success, fontWeight: 500, marginBottom: 20,
++            background: quotaExhausted ? t.errorBg : t.successBg,
++            border: `1px solid ${quotaExhausted ? t.errorBorder : t.successBorder}`,
++            fontSize: 13, color: quotaExhausted ? t.error : t.success,
++            fontWeight: 500, marginBottom: 20,
+             display: "flex", alignItems: "center", gap: 8,
+           }}>
+-            <span>●</span> 8/10 gerações restantes hoje — Plano Premium Pro
++            <span>{quotaExhausted ? "✕" : "●"}</span>
++            <span>
++              Plano {tier.label} —{" "}
++              {quotaExhausted
++                ? `Limite diario atingido (${tier.dailyQuota}/dia). Volte amanha.`
++                : `${dailyRemaining} de ${tier.dailyQuota} ${tier.dailyQuota === 1 ? "anuncio restante" : "anuncios restantes"} hoje`}
++            </span>
+           </div>
+ 
+           {/* Error display */}
+@@ -288,13 +333,13 @@ export function AnuncioCompletoPage({ t }) {
+           )}
+ 
+           {/* Generate button */}
+-          <button onClick={handleGenerate} disabled={generating || !productName} style={{
++          <button onClick={handleGenerate} disabled={generating || !productName || quotaExhausted} style={{
+             width: "100%", padding: "16px", borderRadius: t.radius,
+             border: "none", fontFamily: "inherit",
+-            background: generating || !productName ? t.bgInput : t.gradient,
+-            color: !productName ? t.textTertiary : t.textInverse,
+-            fontSize: 15, fontWeight: 700, cursor: generating || !productName ? "not-allowed" : "pointer",
+-            boxShadow: !productName || generating ? "none" : t.shadowAccent,
++            background: generating || !productName || quotaExhausted ? t.bgInput : t.gradient,
++            color: !productName || quotaExhausted ? t.textTertiary : t.textInverse,
++            fontSize: 15, fontWeight: 700, cursor: generating || !productName || quotaExhausted ? "not-allowed" : "pointer",
++            boxShadow: !productName || generating || quotaExhausted ? "none" : t.shadowAccent,
+             transition: "all 0.3s", position: "relative", overflow: "hidden",
+             letterSpacing: 0.3,
+           }}>
+@@ -306,7 +351,7 @@ export function AnuncioCompletoPage({ t }) {
+               }} />
+             )}
+             <span style={{ position: "relative", zIndex: 1 }}>
+-              {generating ? `Gerando anúncio... ${progress}%` : "✦  Gerar Anúncio Completo com IA"}
++              {generating ? `Gerando anúncio... ${progress}%` : quotaExhausted ? "Limite diario atingido" : "✦  Gerar Anúncio"}
+             </span>
+           </button>
+         </div>
+@@ -623,3 +668,41 @@ export function AnuncioCompletoPage({ t }) {
+     </div>
+   );
+ }
++
++// ===============================================================
++// LockedFeatureCard — cartao visual de upsell para features
++// indisponiveis no tier atual do usuario.
++// ===============================================================
++function LockedFeatureCard({ t, icon, title, description, upsellTarget }) {
++  const targetLabel = upsellTarget === "premium" ? "Premium" : upsellTarget === "pro" ? "Pro" : "superior";
++  return (
++    <div style={{
++      marginBottom: 24, padding: "14px 16px", borderRadius: t.radius,
++      background: t.bgInput, border: `1px dashed ${t.border}`,
++      display: "flex", alignItems: "center", gap: 12,
++      opacity: 0.85,
++    }}>
++      <div style={{
++        width: 36, height: 36, flexShrink: 0,
++        borderRadius: t.radiusSm, background: t.bgCard,
++        border: `1px solid ${t.border}`,
++        display: "flex", alignItems: "center", justifyContent: "center",
++        fontSize: 16, color: t.textTertiary,
++      }}>{icon}</div>
++      <div style={{ flex: 1, minWidth: 0 }}>
++        <div style={{ fontSize: 13, fontWeight: 600, color: t.textSecondary, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
++          <span style={{ fontSize: 10 }}>🔒</span> {title}
++        </div>
++        <div style={{ fontSize: 12, color: t.textTertiary, lineHeight: 1.45 }}>{description}</div>
++      </div>
++      {upsellTarget && (
++        <span style={{
++          padding: "5px 10px", borderRadius: t.radiusSm,
++          background: t.accentMuted, border: `1px solid ${t.accentBorder}`,
++          fontSize: 11, fontWeight: 700, color: t.accent,
++          whiteSpace: "nowrap",
++        }}>Upgrade {targetLabel}</span>
++      )}
++    </div>
++  );
++}
+diff --git a/client/src/pages/DashboardPage.jsx b/client/src/pages/DashboardPage.jsx
+index 720d5ee..b087bf5 100644
+--- a/client/src/pages/DashboardPage.jsx
++++ b/client/src/pages/DashboardPage.jsx
+@@ -15,14 +15,10 @@ export function DashboardPage({ t, onNav }) {
+     <div>
+       <div style={{ marginBottom: 28 }}>
+         <h1 style={{ fontSize: 26, fontWeight: 800, color: t.text, margin: 0, letterSpacing: -0.3 }}>Dashboard</h1>
+-        <p style={{ color: t.textTertiary, margin: "6px 0 0", fontSize: 14 }}>Visão geral da operação em todos os marketplaces</p>
+       </div>
+ 
+       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 28 }}>
+         <MetricCard icon="◈" label="Anúncios Gerados" value={String(generations.length)} t={t} delay={0} />
+-        <MetricCard icon="$" label="Vendas (mês)" value="R$ 0" t={t} delay={80} />
+-        <MetricCard icon="%" label="Conversão" value="0%" t={t} delay={160} />
+-        <MetricCard icon="★" label="Reputação" value="—" t={t} delay={240} />
+       </div>
+ 
+       <div style={{
+diff --git a/client/src/pages/PlansPage.jsx b/client/src/pages/PlansPage.jsx
+index 2783397..a6045a1 100644
+--- a/client/src/pages/PlansPage.jsx
++++ b/client/src/pages/PlansPage.jsx
+@@ -1,26 +1,95 @@
++import { TIERS, getTier } from "../config/tiers";
++
++// Feature labels exibidos em cada plano. Derivados de tier.features.
++function featureList(tier) {
++  const items = [];
++  if (tier.features.titleTraditional) items.push("Titulo tradicional");
++  if (tier.features.titleCatalog) items.push("Titulo de catalogo");
++  if (tier.features.longTail) items.push("Titulo long-tail");
++  if (tier.features.keywords) items.push("Palavras-chave");
++  if (tier.features.tags) items.push("Tags otimizadas");
++  if (tier.features.description) items.push("Descricao completa");
++  if (tier.features.images > 0) items.push(`${tier.features.images} imagens com IA`);
++  if (tier.features.video) items.push("1 clipe de 15–30s");
++  return items;
++}
++
+ export function PlansPage({ t, user }) {
+-  const plans = [
+-    { name: "Starter", credits: 50, price: "R$ 49/mês" },
+-    { name: "Premium Pro", credits: 500, price: "R$ 149/mês" },
+-    { name: "Scale", credits: 2500, price: "R$ 499/mês" }
+-  ];
++  const currentTier = getTier(user?.plan);
++  const plans = [TIERS.starter, TIERS.pro, TIERS.premium];
+ 
+   return (
+     <div>
+-      <h1 style={{ fontSize: 26, fontWeight: 800, color: t.text, margin: "0 0 6px" }}>Planos & Créditos</h1>
+-      <p style={{ color: t.textTertiary, fontSize: 14, marginBottom: 28 }}>Estrutura inicial para controlar uso de IA por geração.</p>
+-      <div style={{ padding: 18, background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: t.radius, color: t.success, marginBottom: 22 }}>
+-        Plano atual: <strong>{user?.plan || "Premium Pro"}</strong> • Créditos usados: <strong>{user?.credits_used || 0}/{user?.credits_total || 500}</strong>
++      <h1 style={{ fontSize: 26, fontWeight: 800, color: t.text, margin: "0 0 6px" }}>Planos</h1>
++      <p style={{ color: t.textTertiary, fontSize: 14, marginBottom: 28 }}>
++        Assinaturas liberam acesso a diferentes volumes de geracao por dia. O custo das APIs de IA
++        e pago diretamente pelo cliente atraves das chaves cadastradas (BYOK).
++      </p>
++
++      <div style={{
++        padding: 18, background: t.successBg, border: `1px solid ${t.successBorder}`,
++        borderRadius: t.radius, color: t.success, marginBottom: 22,
++      }}>
++        Plano atual: <strong>{currentTier.label}</strong>
++        {" • "}
++        Uso hoje: <strong>{user?.daily_used ?? 0}/{currentTier.dailyQuota}</strong>
++        {" • "}
++        No mes: <strong>{user?.monthly_used ?? 0}/{currentTier.monthlyQuota}</strong>
+       </div>
+-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+-        {plans.map(plan => (
+-          <div key={plan.name} style={{ background: t.bgCard, border: `1px solid ${plan.name === (user?.plan || "Premium Pro") ? t.accent : t.border}`, borderRadius: t.radiusLg, padding: 24 }}>
+-            <div style={{ color: t.accent, fontWeight: 800, fontSize: 18 }}>{plan.name}</div>
+-            <div style={{ color: t.text, fontSize: 28, fontWeight: 900, marginTop: 12 }}>{plan.credits}</div>
+-            <div style={{ color: t.textTertiary, fontSize: 12 }}>créditos/mês</div>
+-            <div style={{ marginTop: 18, color: t.textSecondary, fontWeight: 700 }}>{plan.price}</div>
+-          </div>
+-        ))}
++
++      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
++        {plans.map(plan => {
++          const isCurrent = plan.id === currentTier.id;
++          return (
++            <div key={plan.id} style={{
++              background: t.bgCard,
++              border: `1px solid ${isCurrent ? t.accent : t.border}`,
++              borderRadius: t.radiusLg, padding: 24,
++              position: "relative",
++            }}>
++              {isCurrent && (
++                <span style={{
++                  position: "absolute", top: 12, right: 12,
++                  padding: "3px 8px", borderRadius: t.radiusSm,
++                  background: t.accentMuted, border: `1px solid ${t.accentBorder}`,
++                  fontSize: 10, fontWeight: 700, color: t.accent, letterSpacing: 1,
++                }}>ATUAL</span>
++              )}
++              <div style={{ color: t.accent, fontWeight: 800, fontSize: 18 }}>{plan.label}</div>
++              <div style={{ color: t.text, fontSize: 28, fontWeight: 900, marginTop: 12 }}>
++                {plan.dailyQuota}
++                <span style={{ fontSize: 14, fontWeight: 500, color: t.textTertiary, marginLeft: 6 }}>
++                  / dia
++                </span>
++              </div>
++              <div style={{ color: t.textTertiary, fontSize: 12, marginTop: 2 }}>
++                ate {plan.monthlyQuota} anuncios no mes
++              </div>
++
++              <div style={{ marginTop: 18, borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
++                {featureList(plan).map((feat, i) => (
++                  <div key={i} style={{
++                    fontSize: 12, color: t.textSecondary,
++                    marginBottom: 6, display: "flex", gap: 8,
++                  }}>
++                    <span style={{ color: t.accent }}>✓</span>
++                    <span>{feat}</span>
++                  </div>
++                ))}
++              </div>
++            </div>
++          );
++        })}
++      </div>
++
++      <div style={{
++        marginTop: 28, padding: "14px 18px", borderRadius: t.radius,
++        background: t.bgCard, border: `1px dashed ${t.border}`,
++        fontSize: 12, color: t.textTertiary, lineHeight: 1.6,
++      }}>
++        <strong style={{ color: t.textSecondary }}>Observacao:</strong>{" "}
++        Precos e fluxo de pagamento serao habilitados em etapa posterior.
++        Hoje a mudanca de plano e feita manualmente pela equipe.
+       </div>
+     </div>
+   );
+diff --git a/server/src/config/tiers.js b/server/src/config/tiers.js
+new file mode 100644
+index 0000000..48031a6
+--- /dev/null
++++ b/server/src/config/tiers.js
+@@ -0,0 +1,71 @@
++// ===============================================================
++// CONFIGURACAO DE TIERS / PLANOS (servidor)
++// ---------------------------------------------------------------
++// Espelho de client/src/config/tiers.js em CommonJS.
++// Fonte da verdade do enforcement de cotas.
++//
++// IMPORTANTE: se alterar valores aqui, alterar tambem em
++// client/src/config/tiers.js. Na Etapa 3 iremos unificar atraves
++// de um pacote shared/ empacotado corretamente.
++// ===============================================================
++
++const TIERS = {
++  starter: {
++    id: "starter",
++    label: "Starter",
++    dailyQuota: 1,
++    monthlyQuota: 30,
++    features: {
++      titleTraditional: true,
++      titleCatalog: false,
++      longTail: true,
++      keywords: true,
++      tags: false,
++      description: true,
++      images: 0,
++      video: false,
++    },
++  },
++  pro: {
++    id: "pro",
++    label: "Pro",
++    dailyQuota: 2,
++    monthlyQuota: 60,
++    features: {
++      titleTraditional: true,
++      titleCatalog: true,
++      longTail: true,
++      keywords: true,
++      tags: true,
++      description: true,
++      images: 4,
++      video: false,
++    },
++  },
++  premium: {
++    id: "premium",
++    label: "Premium",
++    dailyQuota: 3,
++    monthlyQuota: 90,
++    features: {
++      titleTraditional: true,
++      titleCatalog: true,
++      longTail: true,
++      keywords: true,
++      tags: true,
++      description: true,
++      images: 5,
++      video: true,
++    },
++  },
++};
++
++const DEFAULT_TIER_ID = "starter";
++
++function getTier(planId) {
++  if (!planId) return TIERS[DEFAULT_TIER_ID];
++  const key = String(planId).toLowerCase();
++  return TIERS[key] || TIERS[DEFAULT_TIER_ID];
++}
++
++module.exports = { TIERS, DEFAULT_TIER_ID, getTier };
+diff --git a/server/src/db/init.js b/server/src/db/init.js
+index ba01967..e616508 100644
+--- a/server/src/db/init.js
++++ b/server/src/db/init.js
+@@ -8,7 +8,7 @@ async function initDb() {
+       email TEXT UNIQUE NOT NULL,
+       password_hash TEXT NOT NULL,
+       role TEXT NOT NULL DEFAULT 'user',
+-      plan TEXT NOT NULL DEFAULT 'Premium Pro',
++      plan TEXT NOT NULL DEFAULT 'starter',
+       credits_total INTEGER NOT NULL DEFAULT 500,
+       credits_used INTEGER NOT NULL DEFAULT 0,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+@@ -58,6 +58,30 @@ async function initDb() {
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     );
+   `);
++
++  // -----------------------------------------------------------------
++  // Migracao de planos (idempotente)
++  // -----------------------------------------------------------------
++  // Antes os planos eram textos livres como 'Premium Pro' com 500 creditos
++  // fixos. A partir da Etapa 0.5 existem tres ids canonicos: starter, pro,
++  // premium. Normalizamos qualquer valor legado:
++  //
++  //  - usuario admin (primeiro a se registrar): vira 'premium'
++  //  - qualquer outro plano desconhecido: vira 'starter'
++  //
++  // Rodar UPDATEs com WHERE plan NOT IN (...) garante idempotencia:
++  // na segunda execucao nada sera tocado.
++  await pool.query(
++    `UPDATE users
++     SET plan = 'premium'
++     WHERE role = 'admin'
++       AND plan NOT IN ('starter', 'pro', 'premium')`
++  );
++  await pool.query(
++    `UPDATE users
++     SET plan = 'starter'
++     WHERE plan NOT IN ('starter', 'pro', 'premium')`
++  );
+ }
+ 
+ module.exports = { initDb };
+diff --git a/server/src/services/authService.js b/server/src/services/authService.js
+index 53c12bc..be0bd7b 100644
+--- a/server/src/services/authService.js
++++ b/server/src/services/authService.js
+@@ -1,25 +1,41 @@
+ const bcrypt = require("bcryptjs");
+ const jwt = require("jsonwebtoken");
+ const { pool } = require("../db/pool");
++const { getUsage } = require("./usageService");
++const { DEFAULT_TIER_ID, TIERS } = require("../config/tiers");
+ 
+ function getJwtSecret() {
+   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+   if (process.env.NODE_ENV === "production") throw new Error("JWT_SECRET precisa estar configurado em produção.");
+-  return "development-only-wl-importados-secret";
++  return "development-only-unsafe-secret";
+ }
+ 
+-function publicUser(user) {
++// Normaliza o plano lido do banco para um dos ids conhecidos.
++// Protege a UI de valores legados como 'Premium Pro'.
++function normalizePlan(rawPlan) {
++  const key = String(rawPlan || "").toLowerCase().trim();
++  return TIERS[key] ? key : DEFAULT_TIER_ID;
++}
++
++function publicUser(user, usage = null) {
+   return {
+     id: user.id,
+     name: user.name,
+     email: user.email,
+     role: user.role,
+-    plan: user.plan,
++    plan: normalizePlan(user.plan),
+     credits_total: user.credits_total,
+-    credits_used: user.credits_used
++    credits_used: user.credits_used,
++    daily_used: usage?.daily_used ?? 0,
++    monthly_used: usage?.monthly_used ?? 0,
+   };
+ }
+ 
++async function publicUserWithUsage(user) {
++  const usage = await getUsage(user.id);
++  return publicUser(user, usage);
++}
++
+ function signUser(user) {
+   return jwt.sign({ sub: user.id, role: user.role }, getJwtSecret(), { expiresIn: "7d" });
+ }
+@@ -42,6 +58,7 @@ async function registerUser({ name, email, password }) {
+       [name.trim(), normalizedEmail, passwordHash, role]
+     );
+     const user = result.rows[0];
++    // Usuario recem-criado nao tem geracoes, pula query de usage.
+     return { user: publicUser(user), token: signUser(user) };
+   } catch (err) {
+     if (err.code === "23505") {
+@@ -63,12 +80,13 @@ async function loginUser({ email, password }) {
+     err.status = 401;
+     throw err;
+   }
+-  return { user: publicUser(user), token: signUser(user) };
++  return { user: await publicUserWithUsage(user), token: signUser(user) };
+ }
+ 
+ async function findUserById(id) {
+   const result = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
+-  return result.rows[0] ? publicUser(result.rows[0]) : null;
++  if (!result.rows[0]) return null;
++  return publicUserWithUsage(result.rows[0]);
+ }
+ 
+ function verifyToken(token) {
+diff --git a/server/src/services/generationService.js b/server/src/services/generationService.js
+index e431202..d502a34 100644
+--- a/server/src/services/generationService.js
++++ b/server/src/services/generationService.js
+@@ -1,6 +1,8 @@
+ const { pool } = require("../db/pool");
+ const { generateTextContent } = require("./ai/textService");
+ const { generateMedia } = require("./ai/mediaService");
++const { getUsage } = require("./usageService");
++const { getTier } = require("../config/tiers");
+ 
+ async function createGeneration(user, input) {
+   const productName = String(input.productName || "").trim();
+@@ -10,9 +12,23 @@ async function createGeneration(user, input) {
+     throw err;
+   }
+ 
+-  if (user.credits_used >= user.credits_total) {
+-    const err = new Error("Créditos insuficientes para gerar novo anúncio.");
+-    err.status = 402;
++  // Cota por tier: diaria E mensal precisam estar dentro do limite.
++  const tier = getTier(user.plan);
++  const usage = await getUsage(user.id);
++
++  if (usage.daily_used >= tier.dailyQuota) {
++    const err = new Error(
++      `Limite diario do plano ${tier.label} atingido (${tier.dailyQuota}/dia). Tente novamente amanha ou faca upgrade.`
++    );
++    err.status = 429;
++    throw err;
++  }
++
++  if (usage.monthly_used >= tier.monthlyQuota) {
++    const err = new Error(
++      `Limite mensal do plano ${tier.label} atingido (${tier.monthlyQuota}/mes). Aguarde o proximo ciclo ou faca upgrade.`
++    );
++    err.status = 429;
+     throw err;
+   }
+ 
+@@ -23,6 +39,7 @@ async function createGeneration(user, input) {
+     [user.id, productName, input.category || null, input.tone || null, JSON.stringify(input.marketplaces || []), input, result]
+   );
+ 
++  // credits_used legado (mantido ate Etapa 3 formalizar o modelo).
+   await pool.query("UPDATE users SET credits_used = credits_used + 1 WHERE id = $1", [user.id]);
+   await pool.query(
+     "INSERT INTO credit_transactions (user_id, amount, reason, metadata) VALUES ($1, $2, $3, $4)",
+diff --git a/server/src/services/usageService.js b/server/src/services/usageService.js
+new file mode 100644
+index 0000000..339a009
+--- /dev/null
++++ b/server/src/services/usageService.js
+@@ -0,0 +1,20 @@
++const { pool } = require("../db/pool");
++
++// Retorna quantos anuncios (generations) o usuario ja gerou hoje e no mes corrente.
++// Usa created_at com AT TIME ZONE 'UTC' — na Etapa 3 consideraremos o timezone do user.
++async function getUsage(userId) {
++  const result = await pool.query(
++    `SELECT
++       COUNT(*) FILTER (WHERE created_at >= date_trunc('day', NOW()))::int AS daily_used,
++       COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW()))::int AS monthly_used
++     FROM generations
++     WHERE user_id = $1`,
++    [userId]
++  );
++  return {
++    daily_used: result.rows[0]?.daily_used ?? 0,
++    monthly_used: result.rows[0]?.monthly_used ?? 0,
++  };
++}
++
++module.exports = { getUsage };
+-- 
+2.43.0
+
