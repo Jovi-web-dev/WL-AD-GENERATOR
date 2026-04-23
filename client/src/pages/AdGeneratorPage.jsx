@@ -1,14 +1,22 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button, InputField, SelectField } from "../components/ui";
 import { CATEGORIES, MARKETPLACES } from "../config/app";
+import { getTier, TIERS } from "../config/tiers";
 import { apiGenerateAd, apiGenerateMedia } from "../lib/api";
 
-export function AnuncioCompletoPage({ t }) {
+export function AnuncioCompletoPage({ t, user }) {
+  // Tier derivado do user. Se nao houver user (edge case), assume Starter.
+  const tier = useMemo(() => getTier(user?.plan), [user?.plan]);
+  const dailyUsed = user?.daily_used ?? 0;
+  const dailyRemaining = Math.max(0, tier.dailyQuota - dailyUsed);
+  const quotaExhausted = dailyRemaining <= 0;
+
   const [productName, setProductName] = useState("");
   const [productDetails, setProductDetails] = useState("");
   const [category, setCategory] = useState("");
   const [tone, setTone] = useState("profissional");
-  const [selectedMPs, setSelectedMPs] = useState(["ml"]);
+  // Marketplace mutuamente exclusivo (1 por anuncio). Default: Mercado Livre.
+  const [selectedMP, setSelectedMP] = useState("ml");
   const [uploadedImages, setUploadedImages] = useState([]);
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
@@ -87,7 +95,7 @@ export function AnuncioCompletoPage({ t }) {
         productDetails,
         category,
         tone,
-        marketplaces: selectedMPs,
+        marketplaces: [selectedMP],
         imageCount: uploadedImages.length
       });
 
@@ -147,16 +155,19 @@ export function AnuncioCompletoPage({ t }) {
             ]} value={tone} onChange={e => setTone(e.target.value)} t={t} />
           </div>
 
-          {/* Marketplace selection */}
+          {/* Marketplace selection — exclusivo: 1 anuncio = 1 marketplace */}
           <div style={{ marginBottom: 24 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 10 }}>
-              <span style={{ color: t.accent }}>→</span> Marketplace(s) destino
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 6 }}>
+              <span style={{ color: t.accent }}>→</span> Marketplace de destino
             </label>
+            <p style={{ fontSize: 12, color: t.textTertiary, margin: "0 0 10px", lineHeight: 1.5 }}>
+              Escolha um marketplace. Cada marketplace tem regras proprias de titulo, descricao e categoria — gerar um anuncio por vez garante a melhor otimizacao.
+            </p>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {MARKETPLACES.map(mp => {
-                const sel = selectedMPs.includes(mp.id);
+                const sel = selectedMP === mp.id;
                 return (
-                  <button key={mp.id} onClick={() => setSelectedMPs(p => sel ? p.filter(x => x !== mp.id) : [...p, mp.id])} style={{
+                  <button key={mp.id} onClick={() => setSelectedMP(mp.id)} style={{
                     padding: "10px 18px", borderRadius: t.radius,
                     border: `1.5px solid ${sel ? t.accent : t.border}`,
                     background: sel ? t.accentMuted : "transparent",
@@ -179,13 +190,14 @@ export function AnuncioCompletoPage({ t }) {
             </div>
           </div>
 
-          {/* Image upload section */}
+          {/* Image upload section — so aparece se o tier incluir imagens */}
+          {tier.features.images > 0 ? (
           <div style={{ marginBottom: 24 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 6 }}>
               <span style={{ color: t.accent }}>◲</span> Imagens de referência (opcional)
             </label>
             <p style={{ fontSize: 12, color: t.textTertiary, margin: "0 0 12px", lineHeight: 1.5 }}>
-              Envie até 5 fotos do produto. A IA analisará e gerará 5 imagens profissionais otimizadas para conversão.
+              Envie até 5 fotos do produto. A IA gerará {tier.features.images} imagens profissionais otimizadas para conversão.
             </p>
             
             {uploadedImages.length < 5 && (
@@ -249,30 +261,63 @@ export function AnuncioCompletoPage({ t }) {
                 background: t.bgInput, border: `1px solid ${t.accentBorder}`,
                 fontSize: 11, color: t.textTertiary, lineHeight: 1.5,
               }}>
-                <strong style={{ color: t.accent, fontWeight: 600 }}>Imagens que serão geradas:</strong><br/>
-                ① Foto profissional de estúdio • ② Alta conversão • ③ Com descrição integrada • ④ Grande + detalhes • ⑤ Ambientada em contexto
+                <strong style={{ color: t.accent, fontWeight: 600 }}>
+                  {tier.features.images} {tier.features.images === 1 ? "imagem sera gerada" : "imagens serao geradas"}:
+                </strong><br/>
+                {tier.features.images >= 1 && "① Foto profissional de estúdio"}
+                {tier.features.images >= 2 && " • ② Alta conversão"}
+                {tier.features.images >= 3 && " • ③ Com descrição integrada"}
+                {tier.features.images >= 4 && " • ④ Grande + detalhes"}
+                {tier.features.images >= 5 && " • ⑤ Ambientada em contexto"}
               </div>
             )}
           </div>
+          ) : (
+            <LockedFeatureCard
+              t={t}
+              icon="◲"
+              title="Geração de imagens com IA"
+              description={`Disponivel nos planos ${TIERS.pro.label} (${TIERS.pro.features.images} imagens) e ${TIERS.premium.label} (${TIERS.premium.features.images} imagens).`}
+              upsellTarget={tier.upsellTarget}
+            />
+          )}
 
-          <div style={{
-            padding: "10px 14px", borderRadius: t.radius,
-            background: t.infoBg, border: `1px solid ${t.accentBorder}`,
-            fontSize: 12, color: t.info, marginBottom: 20,
-            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-          }}>
-            <span style={{ fontWeight: 600 }}>APIs seguras:</span>
-            <span>As chamadas agora passam pelo back-end. Sem chaves expostas no navegador.</span>
-          </div>
+          {/* Video section — upsell ate Premium */}
+          {tier.features.video ? (
+            <div style={{
+              marginBottom: 24, padding: "14px 16px", borderRadius: t.radius,
+              background: t.accentMuted, border: `1px solid ${t.accentBorder}`,
+              fontSize: 12, color: t.textSecondary, lineHeight: 1.5,
+            }}>
+              <strong style={{ color: t.accent, fontWeight: 600 }}>▶ Clipe de 15–30s incluso.</strong>{" "}
+              Sera gerado um clipe curto do produto a partir da melhor imagem produzida.
+            </div>
+          ) : (
+            <LockedFeatureCard
+              t={t}
+              icon="▶"
+              title="Clipe de 15–30s com IA"
+              description={`Disponivel no plano ${TIERS.premium.label}. Gera um clipe curto do produto ideal para Stories, Reels e video no anuncio.`}
+              upsellTarget="premium"
+            />
+          )}
 
-          {/* Usage indicator */}
+          {/* Usage indicator — cota diaria dinamica por tier */}
           <div style={{
             padding: "12px 16px", borderRadius: t.radius,
-            background: t.successBg, border: `1px solid ${t.successBorder}`,
-            fontSize: 13, color: t.success, fontWeight: 500, marginBottom: 20,
+            background: quotaExhausted ? t.errorBg : t.successBg,
+            border: `1px solid ${quotaExhausted ? t.errorBorder : t.successBorder}`,
+            fontSize: 13, color: quotaExhausted ? t.error : t.success,
+            fontWeight: 500, marginBottom: 20,
             display: "flex", alignItems: "center", gap: 8,
           }}>
-            <span>●</span> 8/10 gerações restantes hoje — Plano Premium Pro
+            <span>{quotaExhausted ? "✕" : "●"}</span>
+            <span>
+              Plano {tier.label} —{" "}
+              {quotaExhausted
+                ? `Limite diario atingido (${tier.dailyQuota}/dia). Volte amanha.`
+                : `${dailyRemaining} de ${tier.dailyQuota} ${tier.dailyQuota === 1 ? "anuncio restante" : "anuncios restantes"} hoje`}
+            </span>
           </div>
 
           {/* Error display */}
@@ -288,13 +333,13 @@ export function AnuncioCompletoPage({ t }) {
           )}
 
           {/* Generate button */}
-          <button onClick={handleGenerate} disabled={generating || !productName} style={{
+          <button onClick={handleGenerate} disabled={generating || !productName || quotaExhausted} style={{
             width: "100%", padding: "16px", borderRadius: t.radius,
             border: "none", fontFamily: "inherit",
-            background: generating || !productName ? t.bgInput : t.gradient,
-            color: !productName ? t.textTertiary : t.textInverse,
-            fontSize: 15, fontWeight: 700, cursor: generating || !productName ? "not-allowed" : "pointer",
-            boxShadow: !productName || generating ? "none" : t.shadowAccent,
+            background: generating || !productName || quotaExhausted ? t.bgInput : t.gradient,
+            color: !productName || quotaExhausted ? t.textTertiary : t.textInverse,
+            fontSize: 15, fontWeight: 700, cursor: generating || !productName || quotaExhausted ? "not-allowed" : "pointer",
+            boxShadow: !productName || generating || quotaExhausted ? "none" : t.shadowAccent,
             transition: "all 0.3s", position: "relative", overflow: "hidden",
             letterSpacing: 0.3,
           }}>
@@ -306,7 +351,7 @@ export function AnuncioCompletoPage({ t }) {
               }} />
             )}
             <span style={{ position: "relative", zIndex: 1 }}>
-              {generating ? `Gerando anúncio... ${progress}%` : "✦  Gerar Anúncio Completo com IA"}
+              {generating ? `Gerando anúncio... ${progress}%` : quotaExhausted ? "Limite diario atingido" : "✦  Gerar Anúncio"}
             </span>
           </button>
         </div>
@@ -619,6 +664,44 @@ export function AnuncioCompletoPage({ t }) {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ===============================================================
+// LockedFeatureCard — cartao visual de upsell para features
+// indisponiveis no tier atual do usuario.
+// ===============================================================
+function LockedFeatureCard({ t, icon, title, description, upsellTarget }) {
+  const targetLabel = upsellTarget === "premium" ? "Premium" : upsellTarget === "pro" ? "Pro" : "superior";
+  return (
+    <div style={{
+      marginBottom: 24, padding: "14px 16px", borderRadius: t.radius,
+      background: t.bgInput, border: `1px dashed ${t.border}`,
+      display: "flex", alignItems: "center", gap: 12,
+      opacity: 0.85,
+    }}>
+      <div style={{
+        width: 36, height: 36, flexShrink: 0,
+        borderRadius: t.radiusSm, background: t.bgCard,
+        border: `1px solid ${t.border}`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 16, color: t.textTertiary,
+      }}>{icon}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: t.textSecondary, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 10 }}>🔒</span> {title}
+        </div>
+        <div style={{ fontSize: 12, color: t.textTertiary, lineHeight: 1.45 }}>{description}</div>
+      </div>
+      {upsellTarget && (
+        <span style={{
+          padding: "5px 10px", borderRadius: t.radiusSm,
+          background: t.accentMuted, border: `1px solid ${t.accentBorder}`,
+          fontSize: 11, fontWeight: 700, color: t.accent,
+          whiteSpace: "nowrap",
+        }}>Upgrade {targetLabel}</span>
       )}
     </div>
   );

@@ -1,6 +1,8 @@
 const { pool } = require("../db/pool");
 const { generateTextContent } = require("./ai/textService");
 const { generateMedia } = require("./ai/mediaService");
+const { getUsage } = require("./usageService");
+const { getTier } = require("../config/tiers");
 
 async function createGeneration(user, input) {
   const productName = String(input.productName || "").trim();
@@ -10,9 +12,23 @@ async function createGeneration(user, input) {
     throw err;
   }
 
-  if (user.credits_used >= user.credits_total) {
-    const err = new Error("Créditos insuficientes para gerar novo anúncio.");
-    err.status = 402;
+  // Cota por tier: diaria E mensal precisam estar dentro do limite.
+  const tier = getTier(user.plan);
+  const usage = await getUsage(user.id);
+
+  if (usage.daily_used >= tier.dailyQuota) {
+    const err = new Error(
+      `Limite diario do plano ${tier.label} atingido (${tier.dailyQuota}/dia). Tente novamente amanha ou faca upgrade.`
+    );
+    err.status = 429;
+    throw err;
+  }
+
+  if (usage.monthly_used >= tier.monthlyQuota) {
+    const err = new Error(
+      `Limite mensal do plano ${tier.label} atingido (${tier.monthlyQuota}/mes). Aguarde o proximo ciclo ou faca upgrade.`
+    );
+    err.status = 429;
     throw err;
   }
 
@@ -23,6 +39,7 @@ async function createGeneration(user, input) {
     [user.id, productName, input.category || null, input.tone || null, JSON.stringify(input.marketplaces || []), input, result]
   );
 
+  // credits_used legado (mantido ate Etapa 3 formalizar o modelo).
   await pool.query("UPDATE users SET credits_used = credits_used + 1 WHERE id = $1", [user.id]);
   await pool.query(
     "INSERT INTO credit_transactions (user_id, amount, reason, metadata) VALUES ($1, $2, $3, $4)",

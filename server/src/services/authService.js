@@ -1,23 +1,39 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { pool } = require("../db/pool");
+const { getUsage } = require("./usageService");
+const { DEFAULT_TIER_ID, TIERS } = require("../config/tiers");
 
 function getJwtSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
   if (process.env.NODE_ENV === "production") throw new Error("JWT_SECRET precisa estar configurado em produção.");
-  return "development-only-wl-importados-secret";
+  return "development-only-unsafe-secret";
 }
 
-function publicUser(user) {
+// Normaliza o plano lido do banco para um dos ids conhecidos.
+// Protege a UI de valores legados como 'Premium Pro'.
+function normalizePlan(rawPlan) {
+  const key = String(rawPlan || "").toLowerCase().trim();
+  return TIERS[key] ? key : DEFAULT_TIER_ID;
+}
+
+function publicUser(user, usage = null) {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     role: user.role,
-    plan: user.plan,
+    plan: normalizePlan(user.plan),
     credits_total: user.credits_total,
-    credits_used: user.credits_used
+    credits_used: user.credits_used,
+    daily_used: usage?.daily_used ?? 0,
+    monthly_used: usage?.monthly_used ?? 0,
   };
+}
+
+async function publicUserWithUsage(user) {
+  const usage = await getUsage(user.id);
+  return publicUser(user, usage);
 }
 
 function signUser(user) {
@@ -42,6 +58,7 @@ async function registerUser({ name, email, password }) {
       [name.trim(), normalizedEmail, passwordHash, role]
     );
     const user = result.rows[0];
+    // Usuario recem-criado nao tem geracoes, pula query de usage.
     return { user: publicUser(user), token: signUser(user) };
   } catch (err) {
     if (err.code === "23505") {
@@ -63,12 +80,13 @@ async function loginUser({ email, password }) {
     err.status = 401;
     throw err;
   }
-  return { user: publicUser(user), token: signUser(user) };
+  return { user: await publicUserWithUsage(user), token: signUser(user) };
 }
 
 async function findUserById(id) {
   const result = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
-  return result.rows[0] ? publicUser(result.rows[0]) : null;
+  if (!result.rows[0]) return null;
+  return publicUserWithUsage(result.rows[0]);
 }
 
 function verifyToken(token) {

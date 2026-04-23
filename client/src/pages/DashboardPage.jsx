@@ -15,14 +15,10 @@ export function DashboardPage({ t, onNav }) {
     <div>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 26, fontWeight: 800, color: t.text, margin: 0, letterSpacing: -0.3 }}>Dashboard</h1>
-        <p style={{ color: t.textTertiary, margin: "6px 0 0", fontSize: 14 }}>Visão geral da operação em todos os marketplaces</p>
       </div>
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 28 }}>
         <MetricCard icon="◈" label="Anúncios Gerados" value={String(generations.length)} t={t} delay={0} />
-        <MetricCard icon="$" label="Vendas (mês)" value="R$ 0" t={t} delay={80} />
-        <MetricCard icon="%" label="Conversão" value="0%" t={t} delay={160} />
-        <MetricCard icon="★" label="Reputação" value="—" t={t} delay={240} />
       </div>
 
       <div style={{

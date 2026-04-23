@@ -48,6 +48,4 @@ export const CATEGORIES = [
 export const MARKETPLACES = [
   { id: "ml", name: "Mercado Livre", symbol: "ML", hue: 50 },
   { id: "shopee", name: "Shopee", symbol: "SP", hue: 15 },
-  { id: "amazon", name: "Amazon", symbol: "AZ", hue: 30 },
-  { id: "magalu", name: "Magalu", symbol: "MG", hue: 210 },
 ];

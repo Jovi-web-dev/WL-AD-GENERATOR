@@ -8,7 +8,7 @@ async function initDb() {
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'user',
-      plan TEXT NOT NULL DEFAULT 'Premium Pro',
+      plan TEXT NOT NULL DEFAULT 'starter',
       credits_total INTEGER NOT NULL DEFAULT 500,
       credits_used INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -58,6 +58,30 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  // -----------------------------------------------------------------
+  // Migracao de planos (idempotente)
+  // -----------------------------------------------------------------
+  // Antes os planos eram textos livres como 'Premium Pro' com 500 creditos
+  // fixos. A partir da Etapa 0.5 existem tres ids canonicos: starter, pro,
+  // premium. Normalizamos qualquer valor legado:
+  //
+  //  - usuario admin (primeiro a se registrar): vira 'premium'
+  //  - qualquer outro plano desconhecido: vira 'starter'
+  //
+  // Rodar UPDATEs com WHERE plan NOT IN (...) garante idempotencia:
+  // na segunda execucao nada sera tocado.
+  await pool.query(
+    `UPDATE users
+     SET plan = 'premium'
+     WHERE role = 'admin'
+       AND plan NOT IN ('starter', 'pro', 'premium')`
+  );
+  await pool.query(
+    `UPDATE users
+     SET plan = 'starter'
+     WHERE plan NOT IN ('starter', 'pro', 'premium')`
+  );
 }
 
 module.exports = { initDb };

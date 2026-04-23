@@ -1,6 +1,8 @@
 import { NAV, BRAND } from "../config/app";
+import { getTier } from "../config/tiers";
 
-export function Sidebar({ active, onNav, collapsed, onToggle, t }) {
+export function Sidebar({ active, onNav, collapsed, onToggle, t, user }) {
+  const tier = getTier(user?.plan);
   return (
     <aside style={{
       width: collapsed ? 68 : 256, minHeight: "100vh",
@@ -44,8 +46,10 @@ export function Sidebar({ active, onNav, collapsed, onToggle, t }) {
           border: `1px solid ${t.accentBorder}`,
         }}>
           <div style={{ fontSize: 10, color: t.textTertiary, letterSpacing: 1.5, fontWeight: 700 }}>PLANO ATUAL</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: t.accent, marginTop: 3 }}>Premium Pro</div>
-          <div style={{ fontSize: 11, color: t.textTertiary, marginTop: 2 }}>Válido até 12/07/2026</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: t.accent, marginTop: 3 }}>{tier.label}</div>
+          <div style={{ fontSize: 11, color: t.textTertiary, marginTop: 2 }}>
+            {tier.dailyQuota} {tier.dailyQuota === 1 ? "anuncio" : "anuncios"} por dia
+          </div>
         </div>
       )}
 

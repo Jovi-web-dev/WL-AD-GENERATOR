@@ -42,7 +42,7 @@ export default function AdGeneratorApp() {
   const renderPage = () => {
     switch (page) {
       case "dashboard": return <DashboardPage t={t} onNav={setPage} />;
-      case "anuncio": return <AnuncioCompletoPage t={t} />;
+      case "anuncio": return <AnuncioCompletoPage t={t} user={user} />;
       case "historico": return <HistoryPage t={t} />;
       case "planos": return <PlansPage t={t} user={user} />;
       case "admin": return <AdminPage t={t} />;
@@ -84,7 +84,7 @@ export default function AdGeneratorApp() {
         select option { background: ${t.bgCard}; color: ${t.text}; }
       `}</style>
 
-      <Sidebar active={page} onNav={setPage} collapsed={collapsed} onToggle={() => setCollapsed(p => !p)} t={t} />
+      <Sidebar active={page} onNav={setPage} collapsed={collapsed} onToggle={() => setCollapsed(p => !p)} t={t} user={user} />
 
       <main style={{ flex: 1, display: "flex", flexDirection: "column", maxHeight: "100vh", overflow: "hidden" }}>
         <header style={{
